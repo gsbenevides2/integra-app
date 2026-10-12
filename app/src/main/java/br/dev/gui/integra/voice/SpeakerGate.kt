@@ -8,7 +8,8 @@ import kotlinx.coroutines.runBlocking
 
 /**
  * A verificação de locutor aplicada antes de o "Ei Integra" disparar: o modelo,
- * os embeddings cadastrados e o limiar. Igual ao `SpeakerGate` do `wakeWord.ts`.
+ * os embeddings de todas as vozes cadastradas (juntos) e o limiar. Igual ao
+ * `SpeakerGate` do `wakeWord.ts`: dispara se casar com QUALQUER voz.
  */
 class SpeakerGate(
     val model: SpeakerModel,
@@ -27,7 +28,7 @@ class SpeakerGate(
 
         /**
          * Monta a verificação, ou null quando não há o que verificar: modelo não
-         * publicado, sem perfil cadastrado, ou o modelo mudou desde o cadastro.
+         * publicado ou nenhuma voz cadastrada com o modelo atual.
          * Null => o "Ei Integra" dispara com qualquer voz (como antes). Bloqueia:
          * chame fora da thread principal.
          */
@@ -36,12 +37,12 @@ class SpeakerGate(
             val api = Integra.api<AssistantApi>()
             val config = runCatching { runBlocking { api.config() } }.getOrNull() ?: return null
             if (config.voiceModelUrl == null) return null
-            val profile = runCatching { runBlocking { api.voiceProfile() } }.getOrNull() ?: return null
-            if (!profile.enrolled || profile.embeddings.isEmpty()) return null
-            if (profile.modelId != config.voiceModelId) return null
+            val voices = runCatching { runBlocking { api.voiceProfiles() } }.getOrNull() ?: return null
+            val current = voices.filter { it.modelId == config.voiceModelId }
+            val embeddings = current.flatMap { voice -> voice.embeddings.map { it.toFloatArray() } }
+            if (embeddings.isEmpty()) return null
             val model = SpeakerModel.load(context, prefs) ?: return null
-            val embeddings = profile.embeddings.map { it.toFloatArray() }
-            Log.i(TAG, "Verificação de locutor ligada (${embeddings.size} amostras)")
+            Log.i(TAG, "Verificação de locutor ligada (${current.size} vozes, ${embeddings.size} amostras)")
             return SpeakerGate(model, embeddings, prefs.voiceMatchThreshold)
         }
     }
