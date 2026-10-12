@@ -13,8 +13,8 @@ android {
         applicationId = "br.dev.gui.integra"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 3
+        versionName = "2.1"
 
         // Permite sobrescrever no build: ./gradlew assembleDebug -PintegraUrl=https://...
         val integraUrl = (project.findProperty("integraUrl") as String?) ?: "https://integra.infra.gui.dev.br"
@@ -87,6 +87,10 @@ dependencies {
     // Reconhecimento offline do "Ei Integra" (mesmo motor e modelo do assistente web).
     implementation("com.alphacephei:vosk-android:0.3.47@aar")
     implementation("net.java.dev.jna:jna:5.13.0@aar")
+
+    // Verificação de locutor ("é a minha voz?") no "Ei Integra": roda o mesmo
+    // modelo ONNX do assistente web, localmente. Ver voice/SpeakerModel.kt.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 
     // RUM, logs e session replay do OpenObserve.
     val o2 = "0.1.0"

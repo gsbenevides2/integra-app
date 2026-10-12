@@ -41,6 +41,15 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_SHOW_LOCKED, true)
         set(v) = sp.edit().putBoolean(KEY_SHOW_LOCKED, v).apply()
 
+    /**
+     * Limiar de similaridade de cosseno do "é a minha voz?": o "Ei Integra" só
+     * dispara quando a voz casa com o perfil cadastrado pelo menos isto. Maior =
+     * mais rígido. Só vale depois do cadastro. Espelha `voiceMatchThreshold`.
+     */
+    var voiceMatchThreshold: Float
+        get() = sp.getFloat(KEY_VOICE_THRESHOLD, DEFAULT_VOICE_THRESHOLD)
+        set(v) = sp.edit().putFloat(KEY_VOICE_THRESHOLD, v).apply()
+
     /** Minutos sem toque até o app bloquear a tela (0 = nunca). */
     var idleLockMinutes: Int
         get() = sp.getInt(KEY_IDLE_LOCK, 2)
@@ -89,6 +98,7 @@ class Prefs(context: Context) {
         val HOST: String = android.net.Uri.parse(HOME_URL).host ?: "integra.infra.gui.dev.br"
         const val USER_AGENT_PRODUCT = "IntegraApp"
         const val DEFAULT_THRESHOLD = 2.5f
+        const val DEFAULT_VOICE_THRESHOLD = 0.6f
 
         private const val KEY_USER = "username"
         private const val KEY_PASS = "password"
@@ -100,5 +110,6 @@ class Prefs(context: Context) {
         private const val KEY_ASSISTANT_ALLOWED = "assistant_allowed"
         private const val KEY_THRESHOLD = "knock_threshold"
         private const val KEY_SHOW_LOCKED = "show_when_locked"
+        private const val KEY_VOICE_THRESHOLD = "voice_match_threshold"
     }
 }

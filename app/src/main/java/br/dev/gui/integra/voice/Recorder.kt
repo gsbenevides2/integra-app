@@ -72,6 +72,54 @@ object Recorder {
         return AssistantHttp.transcribe(encodeWav(recorded))
     }
 
+    /**
+     * Grava uma fala curta (até o silêncio) e devolve as amostras cruas mono em
+     * [-1, 1], para o cadastro de voz (embedding de locutor, não transcrição).
+     * Lança se ninguém falar dentro de [silenceTimeoutMs].
+     */
+    suspend fun captureOnce(context: Context, silenceTimeoutMs: Long): FloatArray {
+        val chunks = Channel<ShortArray>(Channel.UNLIMITED)
+        val listener = AudioInput.Listener { samples, count -> chunks.trySend(samples.copyOf(count)) }
+        if (!AudioInput.add(context, listener)) throw IOException("Microfone indisponível")
+        val recorded = ArrayList<ShortArray>()
+        var record = false
+        try {
+            var elapsedMs = 0.0
+            var loudMs = 0.0
+            var heardSpeech = false
+            var lastVoiceMs = 0.0
+            var noise = Vad.MIN_THRESHOLD / Vad.NOISE_FACTOR
+            while (true) {
+                val samples = chunks.receive()
+                recorded += samples
+                val chunkMs = samples.size * 1000.0 / AudioInput.SAMPLE_RATE
+                elapsedMs += chunkMs
+                val level = rms(samples)
+                val threshold = maxOf(Vad.MIN_THRESHOLD, noise * Vad.NOISE_FACTOR)
+                if (level > threshold) {
+                    loudMs += chunkMs
+                    lastVoiceMs = elapsedMs
+                    if (!heardSpeech && loudMs >= Vad.SPEECH_START_MS) heardSpeech = true
+                } else {
+                    if (!heardSpeech) loudMs = 0.0
+                    noise = noise * 0.95f + level * 0.05f
+                }
+                if (heardSpeech && elapsedMs - lastVoiceMs >= Vad.SPEECH_END_MS) { record = true; break }
+                if (!heardSpeech && elapsedMs >= silenceTimeoutMs) break
+                if (elapsedMs >= Vad.MAX_UTTERANCE_MS) { record = true; break }
+            }
+        } finally {
+            AudioInput.remove(listener)
+            chunks.close()
+        }
+        if (!record) throw IOException("Não ouvi você dizer \"Ei Integra\"")
+        val total = recorded.sumOf { it.size }
+        val out = FloatArray(total)
+        var offset = 0
+        for (chunk in recorded) for (s in chunk) out[offset++] = s / 32768f
+        return out
+    }
+
     private fun rms(samples: ShortArray): Float {
         var sum = 0.0
         for (s in samples) {

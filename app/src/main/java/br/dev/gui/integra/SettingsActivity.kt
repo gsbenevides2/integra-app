@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -43,8 +44,13 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import br.dev.gui.integra.data.Integra
 import br.dev.gui.integra.data.Telemetry
+import br.dev.gui.integra.voice.AssistantApi
+import br.dev.gui.integra.voice.Recorder
+import br.dev.gui.integra.voice.SpeakerModel
 import br.dev.gui.integra.voice.VoiceModel
+import br.dev.gui.integra.voice.VoiceProfileBody
 import br.dev.gui.integra.ui.components.ButtonVariant
 import br.dev.gui.integra.ui.components.IntegraButton
 import br.dev.gui.integra.ui.components.IntegraSlider
@@ -55,7 +61,10 @@ import br.dev.gui.integra.ui.theme.Surface
 import br.dev.gui.integra.ui.theme.Tw
 import br.dev.gui.integra.ui.theme.Txt
 import br.dev.gui.integra.ui.theme.bold
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /** Login (usuário + App password do Authentik) e configurações do app. */
@@ -165,6 +174,7 @@ class SettingsActivity : ComponentActivity() {
                     }
                 }
                 Text(voice, style = Txt.xs, color = Tw.mist400, modifier = Modifier.padding(start = 44.dp))
+                VoiceEnrollment()
                 PrefSwitch("A mão se aproxima do sensor de proximidade (perto da câmera frontal)", prefs.proximityEnabled) {
                     prefs.proximityEnabled = it
                     KnockService.startIfEnabled(this@SettingsActivity)
@@ -252,6 +262,114 @@ class SettingsActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * Cadastro da voz ("é a minha voz?"): grava algumas vezes "Ei Integra",
+     * extrai os embeddings localmente e envia para o integra. Depois, só a voz
+     * cadastrada dispara o "Ei Integra". Ajuste de rigidez (limiar de cosseno).
+     */
+    @Composable
+    private fun VoiceEnrollment() {
+        val ctx = this@SettingsActivity
+        val scope = rememberCoroutineScope()
+        var enrolled by remember { mutableStateOf(false) }
+        var available by remember { mutableStateOf(false) }
+        var status by remember { mutableStateOf<String?>(null) }
+        var threshold by remember { mutableFloatStateOf(prefs.voiceMatchThreshold) }
+
+        LaunchedEffect(Unit) {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val api = Integra.api<AssistantApi>()
+                    val config = api.config()
+                    available = config.voiceModelUrl != null
+                    if (available) {
+                        val profile = api.voiceProfile()
+                        enrolled = profile.enrolled && profile.modelId == config.voiceModelId
+                    }
+                }
+            }
+        }
+        if (!available) return
+
+        Text(
+            if (enrolled) "✅ Sua voz está cadastrada — só você ativa o \"Ei Integra\""
+            else "Sua voz não está cadastrada: o \"Ei Integra\" ativa com qualquer voz.",
+            style = Txt.xs, color = Tw.mist400, modifier = Modifier.padding(start = 44.dp),
+        )
+        status?.let { Text(it, style = Txt.sm, color = Tw.mist300, modifier = Modifier.padding(start = 44.dp)) }
+
+        IntegraButton(
+            if (enrolled) "Regravar minha voz" else "Cadastrar minha voz",
+            {
+                if (!KnockService.hasMicPermission(ctx)) {
+                    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
+                    return@IntegraButton
+                }
+                scope.launch {
+                    try {
+                        val config = withContext(Dispatchers.IO) { Integra.api<AssistantApi>().config() }
+                        val model = withContext(Dispatchers.IO) { SpeakerModel.load(ctx, prefs) }
+                            ?: error("Modelo de voz indisponível")
+                        val embeddings = ArrayList<List<Float>>()
+                        for (i in 1..ENROLL_SAMPLES) {
+                            status = "Diga \"Ei Integra\" ($i/$ENROLL_SAMPLES)…"
+                            val samples = Recorder.captureOnce(ctx, 8_000)
+                            val embedding = withContext(Dispatchers.Default) {
+                                model.embed(samples, br.dev.gui.integra.voice.AudioInput.SAMPLE_RATE)
+                            }
+                            embeddings += embedding.toList()
+                        }
+                        status = "Salvando…"
+                        withContext(Dispatchers.IO) {
+                            Integra.api<AssistantApi>().saveVoiceProfile(VoiceProfileBody(embeddings, config.voiceModelId))
+                        }
+                        model.close()
+                        enrolled = true
+                        status = null
+                        Toast.makeText(ctx, "Sua voz foi cadastrada", Toast.LENGTH_SHORT).show()
+                        KnockService.startIfEnabled(ctx)
+                    } catch (e: Exception) {
+                        status = null
+                        Toast.makeText(ctx, e.message ?: "Falha ao cadastrar a voz", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            Modifier.fillMaxWidth(),
+        )
+        if (enrolled) {
+            IntegraButton(
+                "Remover minha voz",
+                {
+                    scope.launch {
+                        runCatching { withContext(Dispatchers.IO) { Integra.api<AssistantApi>().deleteVoiceProfile() } }
+                        enrolled = false
+                        KnockService.startIfEnabled(ctx)
+                        Toast.makeText(ctx, "Voz removida", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                Modifier.fillMaxWidth(),
+                variant = ButtonVariant.Danger,
+            )
+        }
+        IntegraSlider(
+            value = (threshold * 100).roundToInt().coerceIn(30, 90),
+            onCommit = { p ->
+                threshold = (p / 100f).coerceIn(0.3f, 0.9f)
+                prefs.voiceMatchThreshold = threshold
+                KnockService.startIfEnabled(ctx)
+            },
+            min = 30,
+            max = 90,
+            label = "Rigidez do reconhecimento",
+            formatValue = { "$it%" },
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            "Mais alto = mais rígido (menos falso positivo). Mais baixo = ativa mais fácil.",
+            style = Txt.xs, color = Tw.mist400,
+        )
+    }
+
     @Composable
     private fun PrefSwitch(label: String, initial: Boolean, onChange: (Boolean) -> Unit) {
         var checked by remember { mutableStateOf(initial) }
@@ -277,5 +395,7 @@ class SettingsActivity : ComponentActivity() {
     companion object {
         const val EXTRA_AUTH_FAILED = "auth_failed"
         private const val REQ_MIC = 2
+        /** Quantas vezes gravar "Ei Integra" ao cadastrar a voz. */
+        private const val ENROLL_SAMPLES = 4
     }
 }

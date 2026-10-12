@@ -25,6 +25,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import br.dev.gui.integra.voice.Assistant
+import br.dev.gui.integra.voice.SpeakerGate
 import br.dev.gui.integra.voice.VoiceModel
 import br.dev.gui.integra.voice.WakeWord
 
@@ -123,6 +124,9 @@ class KnockService : Service() {
                 if ((1..3).none { VoiceModel.download(this, prefs) }) return@post
             }
             if (voice !== detector || !detector.load()) return@post
+            // Verificação de locutor ("é a minha voz?"): só a voz cadastrada dispara.
+            // Null quando não há perfil/modelo — aí dispara com qualquer voz (como antes).
+            detector.setGate(runCatching { SpeakerGate.build(this, prefs) }.getOrNull())
             // Ouve sempre (tela ligada ou desligada), como o "Ei Integra" do web.
             detector.start()
         }

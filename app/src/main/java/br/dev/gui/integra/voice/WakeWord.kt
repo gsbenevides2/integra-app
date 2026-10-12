@@ -24,6 +24,22 @@ class WakeWord(private val context: Context, private val onWake: () -> Unit) {
     private var lastDetection = 0L
 
     /**
+     * Verificação de locutor: quando presente, só o "Ei Integra" dito pela voz
+     * cadastrada dispara. Null => dispara com qualquer voz (comportamento antigo).
+     */
+    @Volatile private var gate: SpeakerGate? = null
+
+    /** Anel com o áudio recente (~1,5 s), para checar a voz que disse a frase. */
+    private val ring = ShortArray(AudioInput.SAMPLE_RATE * SPEAKER_BUFFER_MS / 1000)
+    private var ringWrite = 0
+    private var ringFilled = false
+    private val ringLock = Any()
+
+    fun setGate(newGate: SpeakerGate?) {
+        gate = newGate
+    }
+
+    /**
      * O reconhecimento roda numa thread própria para não atrasar a leitura do microfone. Se ficar
      * para trás (aparelho ocupado), descarta os blocos mais antigos: só importa o "agora".
      */
@@ -33,7 +49,28 @@ class WakeWord(private val context: Context, private val onWake: () -> Unit) {
 
     private val listener = AudioInput.Listener { samples, count ->
         val copy = samples.copyOf(count)
+        if (gate != null) pushRing(copy)
         worker.execute { process(copy) }
+    }
+
+    /** Grava o áudio no anel circular (chamado na thread do microfone). */
+    private fun pushRing(samples: ShortArray) {
+        synchronized(ringLock) {
+            for (s in samples) {
+                ring[ringWrite] = s
+                ringWrite = (ringWrite + 1) % ring.size
+                if (ringWrite == 0) ringFilled = true
+            }
+        }
+    }
+
+    /** Snapshot do anel como FloatArray em [-1, 1], em ordem cronológica. */
+    private fun ringSnapshot(): FloatArray = synchronized(ringLock) {
+        val length = if (ringFilled) ring.size else ringWrite
+        FloatArray(length) { i ->
+            val idx = if (ringFilled) (ringWrite + i) % ring.size else i
+            ring[idx] / 32768f
+        }
     }
 
     @Volatile var isListening = false
@@ -77,6 +114,8 @@ class WakeWord(private val context: Context, private val onWake: () -> Unit) {
 
     fun release() {
         stop()
+        gate?.model?.close()
+        gate = null
         worker.execute { model?.close(); model = null }
         worker.shutdown()
     }
@@ -92,8 +131,21 @@ class WakeWord(private val context: Context, private val onWake: () -> Unit) {
         if (text !in WAKE_PHRASES) return
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastDetection < WAKE_COOLDOWN_MS) return
+        // Verificação de locutor: só a voz cadastrada dispara (quando há gate).
+        val gate = gate
+        if (gate != null && !verifySpeaker(gate)) return
         lastDetection = now
         onWake()
+    }
+
+    /** Roda o modelo sobre o áudio recente e compara com o perfil cadastrado. */
+    private fun verifySpeaker(gate: SpeakerGate): Boolean = try {
+        val candidate = gate.model.embed(ringSnapshot(), AudioInput.SAMPLE_RATE)
+        gate.accepts(candidate)
+    } catch (e: Exception) {
+        // Na dúvida, não dispara: é o trabalho da verificação de locutor.
+        Log.w(TAG, "Falha na verificação de locutor", e)
+        false
     }
 
     companion object {
@@ -101,5 +153,7 @@ class WakeWord(private val context: Context, private val onWake: () -> Unit) {
         /** Iguais a `WAKE_PHRASES` do assistente web. */
         val WAKE_PHRASES = listOf("ei integra", "integra")
         private const val WAKE_COOLDOWN_MS = 3_000L
+        /** Áudio recente guardado para a verificação de locutor (cobre a frase). */
+        private const val SPEAKER_BUFFER_MS = 1_500
     }
 }

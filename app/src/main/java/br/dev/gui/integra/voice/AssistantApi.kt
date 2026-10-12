@@ -63,10 +63,29 @@ data class StoredMessage(
 data class ConversationDetail(val id: String, val title: String = "", val messages: List<StoredMessage> = emptyList())
 
 @Serializable
-data class AssistantSettings(val extraInstructions: String = "")
+data class AssistantSettings(
+    val extraInstructions: String = "",
+    val voiceMatchThreshold: Float = 0.6f,
+)
 
 @Serializable
-data class AssistantConfig(val wakeWordEnabled: Boolean = false)
+data class AssistantConfig(
+    val wakeWordEnabled: Boolean = false,
+    val voiceModelUrl: String? = null,
+    val voiceModelId: String = "",
+)
+
+/** `VoiceProfile` de model.ts: os embeddings cadastrados da voz do usuário. */
+@Serializable
+data class VoiceProfile(
+    val enrolled: Boolean = false,
+    val embeddings: List<List<Float>> = emptyList(),
+    val dims: Int = 0,
+    val modelId: String = "",
+)
+
+@Serializable
+data class VoiceProfileBody(val embeddings: List<List<Float>>, val modelId: String)
 
 interface AssistantApi {
     @GET("api/assistant/config") suspend fun config(): AssistantConfig
@@ -76,6 +95,9 @@ interface AssistantApi {
     @DELETE("api/assistant/conversations/{id}") suspend fun deleteConversation(@Path("id") id: String)
     @GET("api/assistant/settings") suspend fun settings(): AssistantSettings
     @PUT("api/assistant/settings") suspend fun saveSettings(@Body body: AssistantSettings)
+    @GET("api/assistant/voice-profile") suspend fun voiceProfile(): VoiceProfile
+    @PUT("api/assistant/voice-profile") suspend fun saveVoiceProfile(@Body body: VoiceProfileBody)
+    @DELETE("api/assistant/voice-profile") suspend fun deleteVoiceProfile()
 }
 
 /** Eventos do `POST /api/assistant/chat/stream` (`StreamEvent` em model.ts). */
