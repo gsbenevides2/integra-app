@@ -13,7 +13,7 @@ android {
         applicationId = "br.dev.gui.integra"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
+        versionCode = 8
         versionName = "2.6"
 
         // Permite sobrescrever no build: ./gradlew assembleDebug -PintegraUrl=https://...
