@@ -75,7 +75,7 @@ object Recorder {
     /**
      * Grava uma fala curta (até o silêncio) e devolve as amostras cruas mono em
      * [-1, 1], para o cadastro de voz (embedding de locutor, não transcrição).
-     * Lança se ninguém falar dentro de [silenceTimeoutMs].
+     * Lança [NoSpeechException] se ninguém falar dentro de [silenceTimeoutMs].
      */
     suspend fun captureOnce(context: Context, silenceTimeoutMs: Long): FloatArray {
         val chunks = Channel<ShortArray>(Channel.UNLIMITED)
@@ -112,7 +112,7 @@ object Recorder {
             AudioInput.remove(listener)
             chunks.close()
         }
-        if (!record) throw IOException("Não ouvi você dizer \"Ei Integra\"")
+        if (!record) throw NoSpeechException()
         val total = recorded.sumOf { it.size }
         val out = FloatArray(total)
         var offset = 0

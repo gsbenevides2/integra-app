@@ -17,6 +17,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.PATCH
+import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
 import kotlin.coroutines.coroutineContext
@@ -75,17 +77,21 @@ data class AssistantConfig(
     val voiceModelId: String = "",
 )
 
-/** `VoiceProfile` de model.ts: os embeddings cadastrados da voz do usuário. */
+/** `VoiceProfile` de model.ts: uma das vozes cadastradas do usuário (pessoa ou aparelho). */
 @Serializable
 data class VoiceProfile(
-    val enrolled: Boolean = false,
+    val id: String,
+    val label: String,
     val embeddings: List<List<Float>> = emptyList(),
     val dims: Int = 0,
     val modelId: String = "",
 )
 
 @Serializable
-data class VoiceProfileBody(val embeddings: List<List<Float>>, val modelId: String)
+data class VoiceProfileBody(val label: String, val embeddings: List<List<Float>>, val modelId: String)
+
+@Serializable
+data class VoiceLabelBody(val label: String)
 
 interface AssistantApi {
     @GET("api/assistant/config") suspend fun config(): AssistantConfig
@@ -95,9 +101,10 @@ interface AssistantApi {
     @DELETE("api/assistant/conversations/{id}") suspend fun deleteConversation(@Path("id") id: String)
     @GET("api/assistant/settings") suspend fun settings(): AssistantSettings
     @PUT("api/assistant/settings") suspend fun saveSettings(@Body body: AssistantSettings)
-    @GET("api/assistant/voice-profile") suspend fun voiceProfile(): VoiceProfile
-    @PUT("api/assistant/voice-profile") suspend fun saveVoiceProfile(@Body body: VoiceProfileBody)
-    @DELETE("api/assistant/voice-profile") suspend fun deleteVoiceProfile()
+    @GET("api/assistant/voice-profiles") suspend fun voiceProfiles(): List<VoiceProfile>
+    @POST("api/assistant/voice-profiles") suspend fun createVoiceProfile(@Body body: VoiceProfileBody)
+    @PATCH("api/assistant/voice-profiles/{id}") suspend fun renameVoiceProfile(@Path("id") id: String, @Body body: VoiceLabelBody)
+    @DELETE("api/assistant/voice-profiles/{id}") suspend fun deleteVoiceProfile(@Path("id") id: String)
 }
 
 /** Eventos do `POST /api/assistant/chat/stream` (`StreamEvent` em model.ts). */

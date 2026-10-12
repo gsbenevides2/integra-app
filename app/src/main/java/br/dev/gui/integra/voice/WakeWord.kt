@@ -29,7 +29,7 @@ class WakeWord(private val context: Context, private val onWake: () -> Unit) {
      */
     @Volatile private var gate: SpeakerGate? = null
 
-    /** Anel com o áudio recente (~1,5 s), para checar a voz que disse a frase. */
+    /** Anel com o áudio recente (~4 s), para checar a voz que disse a frase. */
     private val ring = ShortArray(AudioInput.SAMPLE_RATE * SPEAKER_BUFFER_MS / 1000)
     private var ringWrite = 0
     private var ringFilled = false
@@ -131,16 +131,22 @@ class WakeWord(private val context: Context, private val onWake: () -> Unit) {
         if (text !in WAKE_PHRASES) return
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastDetection < WAKE_COOLDOWN_MS) return
-        // Verificação de locutor: só a voz cadastrada dispara (quando há gate).
+        if (isPaused) return
+        // Verificação de locutor: só uma voz cadastrada dispara (quando há gate).
         val gate = gate
         if (gate != null && !verifySpeaker(gate)) return
+        // A checagem leva um tempo: se pausou enquanto ela rodava (cadastro), não dispara.
+        if (isPaused) return
         lastDetection = now
         onWake()
     }
 
-    /** Roda o modelo sobre o áudio recente e compara com o perfil cadastrado. */
+    /** Roda o modelo sobre a frase recém-ouvida e compara com as vozes cadastradas. */
     private fun verifySpeaker(gate: SpeakerGate): Boolean = try {
-        val candidate = gate.model.embed(ringSnapshot(), AudioInput.SAMPLE_RATE)
+        // Só a frase, como no cadastro; se nada se destaca do ruído (voz muito baixa), a janela toda.
+        val snapshot = ringSnapshot()
+        val speech = SpeechTrim.lastSpeech(snapshot, AudioInput.SAMPLE_RATE)
+        val candidate = gate.model.embed(speech?.samples ?: snapshot, AudioInput.SAMPLE_RATE)
         gate.accepts(candidate)
     } catch (e: Exception) {
         // Na dúvida, não dispara: é o trabalho da verificação de locutor.
@@ -153,7 +159,27 @@ class WakeWord(private val context: Context, private val onWake: () -> Unit) {
         /** Iguais a `WAKE_PHRASES` do assistente web. */
         val WAKE_PHRASES = listOf("ei integra", "integra")
         private const val WAKE_COOLDOWN_MS = 3_000L
-        /** Áudio recente guardado para a verificação de locutor (cobre a frase). */
-        private const val SPEAKER_BUFFER_MS = 1_500
+        /**
+         * Áudio recente guardado para a verificação de locutor. O Vosk só dá o resultado final
+         * depois do silêncio de fim de fala, então uma janela curta tinha mais silêncio que frase;
+         * a checagem embute só a frase, recortada desta janela pelo [SpeechTrim].
+         */
+        private const val SPEAKER_BUFFER_MS = 4_000
+
+        /** `pause()` em aberto; o "Ei Integra" só dispara quando não há nenhum. */
+        private val pauses = java.util.concurrent.atomic.AtomicInteger(0)
+
+        private val isPaused get() = pauses.get() > 0
+
+        /**
+         * Desliga o "Ei Integra" até a função devolvida ser chamada, ex.: enquanto uma voz é
+         * cadastrada (dizer "Ei Integra" para gravar não pode abrir uma sessão). As pausas se
+         * acumulam: volta quando todas forem liberadas. Igual ao `pauseWakeWord` do web.
+         */
+        fun pause(): () -> Unit {
+            pauses.incrementAndGet()
+            val released = java.util.concurrent.atomic.AtomicBoolean(false)
+            return { if (released.compareAndSet(false, true)) pauses.decrementAndGet() }
+        }
     }
 }
