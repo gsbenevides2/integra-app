@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - app/build.gradle.kts
+  # Publica a versão atual se a tag dela ainda não existe (ex.: o primeiro release).
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.get_version.outputs.should_release }}
+      version: ${{ steps.get_version.outputs.version }}
+      prev_tag: ${{ steps.get_version.outputs.prev_tag }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Run Version Preparation Script
+        id: get_version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: .github/workflows/release/prepare-release.sh
+  build:
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build signed APK
+        env:
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+          ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: .github/workflows/release/build.sh
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: dist/*.apk
+          if-no-files-found: error
+  release:
+    needs: [prepare-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: dist
+      - name: Run release script
+        env:
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+          PREV_TAG: ${{ needs.prepare-release.outputs.prev_tag }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FULL_REPO: ${{ github.repository }}
+        run: .github/workflows/release/release.sh
+  ghcr:
+    needs: [prepare-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: dist
+      - name: Setup ORAS
+        uses: oras-project/setup-oras@v1
+      - name: Publish APK to GitHub Packages
+        env:
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+          TOKEN_GITHUB: ${{ secrets.GITHUB_TOKEN }}
+          FULL_REPO: ${{ github.repository }}
+        run: .github/workflows/release/ghcr.sh

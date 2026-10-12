@@ -12,6 +12,18 @@ export ANDROID_HOME=~/Android/sdk
 
 No WSL, o celular USB só aparece pelo adb do Windows: `/mnt/c/platform-tools/adb.exe install -r <apk em C:\…>`.
 
+## Release
+
+Um push na `main` que muda o `versionName` em `app/build.gradle.kts` (com um `versionCode` maior) dispara o workflow **Release**:
+
+1. compila o APK assinado (`assembleRelease`);
+2. cria a tag `vX.Y` e uma Release no GitHub com notas geradas por IA (OpenCode + OpenRouter) e o APK anexado;
+3. publica o APK no GitHub Packages como artefato OCI: `oras pull ghcr.io/gsbenevides2/integra-app:latest`.
+
+O workflow também roda manualmente (*Actions → Release → Run workflow*): publica a versão atual se a tag dela ainda não existe.
+
+O release é assinado com a chave de debug (a mesma das instalações via adb), guardada no secret `ANDROID_DEBUG_KEYSTORE_BASE64`, para o APK atualizar por cima do app instalado. Secrets do repo: `ANDROID_DEBUG_KEYSTORE_BASE64` e `OPENROUTER_API_KEY` (notas da release e review das PRs).
+
 ## Credenciais (Authentik)
 
 O site fica atrás do proxy do Authentik, que aceita `Authorization: Basic` somente com **usuário + App password**. A senha normal do usuário não funciona.
