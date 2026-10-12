@@ -25,6 +25,14 @@ android {
         compose = true
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // Na CI o keystore vem do secret (release/build.sh), num caminho explícito: deixar o AGP
+            // procurar em ~/.android fazia ele gerar uma chave nova a cada build.
+            System.getenv("INTEGRA_KEYSTORE")?.let { storeFile = file(it) }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
