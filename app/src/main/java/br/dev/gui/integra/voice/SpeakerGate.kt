@@ -29,19 +29,22 @@ class SpeakerGate(
         /**
          * Monta a verificação, ou null quando não há o que verificar: modelo não
          * publicado ou nenhuma voz cadastrada com o modelo atual.
-         * Null => o "Ei Integra" dispara com qualquer voz (como antes). Bloqueia:
+         * Null => o "Ei Integra" dispara com qualquer voz (como antes). [reuse] é o
+         * modelo já aberto do gate anterior: só as vozes são buscadas de novo. Lança
+         * exceção se a config ou as vozes não chegarem (ex.: sem rede), para quem chama
+         * manter o gate que já tinha em vez de passar a aceitar qualquer voz. Bloqueia:
          * chame fora da thread principal.
          */
-        fun build(context: Context, prefs: Prefs): SpeakerGate? {
+        fun build(context: Context, prefs: Prefs, reuse: SpeakerModel? = null): SpeakerGate? {
             if (!prefs.hasCredentials) return null
             val api = Integra.api<AssistantApi>()
-            val config = runCatching { runBlocking { api.config() } }.getOrNull() ?: return null
+            val config = runBlocking { api.config() }
             if (config.voiceModelUrl == null) return null
-            val voices = runCatching { runBlocking { api.voiceProfiles() } }.getOrNull() ?: return null
+            val voices = runBlocking { api.voiceProfiles() }
             val current = voices.filter { it.modelId == config.voiceModelId }
             val embeddings = current.flatMap { voice -> voice.embeddings.map { it.toFloatArray() } }
             if (embeddings.isEmpty()) return null
-            val model = SpeakerModel.load(context, prefs) ?: return null
+            val model = reuse ?: SpeakerModel.load(context, prefs) ?: return null
             Log.i(TAG, "Verificação de locutor ligada (${current.size} vozes, ${embeddings.size} amostras)")
             return SpeakerGate(model, embeddings, prefs.voiceMatchThreshold)
         }
