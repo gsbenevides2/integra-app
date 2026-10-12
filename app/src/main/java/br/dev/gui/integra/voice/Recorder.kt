@@ -51,6 +51,7 @@ private class Endpointer(private val onSpeechStart: () -> Unit) {
         private set
     private var loudMs = 0.0
     private var lastVoiceMs = 0.0
+    private var lastStrongMs = 0.0
     private var noise = Vad.MIN_THRESHOLD / Vad.NOISE_FACTOR
 
     /** Processa um bloco. Devolve true quando a frase acabou (silêncio depois da fala). */
@@ -59,10 +60,17 @@ private class Endpointer(private val onSpeechStart: () -> Unit) {
         elapsedMs += chunkMs
         val level = rms(samples)
         val threshold = maxOf(Vad.MIN_THRESHOLD, noise * Vad.NOISE_FACTOR)
-        val limit = if (heardSpeech) threshold * Vad.CONTINUE_FACTOR else threshold
-        val voiced = level > limit
-        Log.d(TAG, "t=%.0f nivel=%.4f limite=%.4f ruido=%.4f fala=%b voz=%b"
-            .format(elapsedMs, level, limit, noise, heardSpeech, voiced))
+        val strong = level > threshold
+        if (strong) lastStrongMs = elapsedMs
+        // A histerese só vale logo depois de um bloco forte: senão um ruído de fundo acima de
+        // 60% do limiar manteria a frase aberta até o MAX_UTTERANCE_MS.
+        val weak = heardSpeech && level > threshold * Vad.CONTINUE_FACTOR &&
+            elapsedMs - lastStrongMs < Vad.SPEECH_END_MS
+        val voiced = strong || weak
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(TAG, "t=%.0f nivel=%.4f limiar=%.4f ruido=%.4f fala=%b voz=%b"
+                .format(elapsedMs, level, threshold, noise, heardSpeech, voiced))
+        }
 
         if (voiced) {
             loudMs += chunkMs
