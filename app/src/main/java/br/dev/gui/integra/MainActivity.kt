@@ -126,8 +126,9 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent(this, SettingsActivity::class.java))
     }
 
-    /** Encerra o processo do app (o botão de "fechar" do cabeçalho). */
+    /** Encerra tudo (o botão de "fechar" do cabeçalho): serviço, microfone e processo. */
     private fun killApp() {
+        KnockService.stopForExit(this)
         finishAndRemoveTask()
         Process.killProcess(Process.myPid())
     }

@@ -266,6 +266,14 @@ class KnockService : Service() {
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
 
+        /**
+         * Para o serviço de vez (microfone, sensores e "Ei Integra"). Precisa ser chamado antes de
+         * matar o processo: o serviço é START_STICKY e, sem stopService, o Android o recria logo.
+         */
+        fun stopForExit(context: Context) {
+            context.stopService(Intent(context, KnockService::class.java))
+        }
+
         fun startIfEnabled(context: Context) {
             val prefs = Prefs(context)
             val intent = Intent(context, KnockService::class.java)
