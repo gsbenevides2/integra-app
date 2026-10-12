@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -65,6 +66,7 @@ class MainActivity : ComponentActivity() {
                 key(credentials) {
                     IntegraApp(
                         lock = { LockService.lockScreen(this) },
+                        kill = ::killApp,
                         openSettings = ::openSettings,
                         homeRequests = homeRequests,
                     )
@@ -122,6 +124,12 @@ class MainActivity : ComponentActivity() {
 
     private fun openSettings() {
         startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
+    /** Encerra o processo do app (o botão de "fechar" do cabeçalho). */
+    private fun killApp() {
+        finishAndRemoveTask()
+        Process.killProcess(Process.myPid())
     }
 
     private fun applyLockScreenFlags() {
