@@ -1,0 +1,9 @@
+<resources>
+    <!-- A UI é toda em Compose; o tema da janela só evita o "flash" claro ao abrir (gray-950 do web). -->
+    <style name="Theme.Integra" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/page</item>
+        <item name="android:statusBarColor">@color/page</item>
+        <item name="android:navigationBarColor">@color/page</item>
+        <item name="android:colorAccent">#6A7477</item>
+    </style>
+</resources>

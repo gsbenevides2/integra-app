@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Integra</string>
+    <string name="lock_service_label">Integra - bloquear tela</string>
+    <string name="lock_service_description">Permite que o botão de cadeado do Integra bloqueie a tela. O serviço não lê o conteúdo da tela.</string>
+</resources>
