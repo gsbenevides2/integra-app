@@ -287,6 +287,8 @@ class SettingsActivity : ComponentActivity() {
         var config by remember { mutableStateOf<AssistantConfig?>(null) }
         /** As vozes do usuário com o modelo atual. */
         var voices by remember { mutableStateOf<List<VoiceProfile>>(emptyList()) }
+        /** Todas as vozes do usuário, de qualquer modelo: é o que o limite do servidor conta. */
+        var totalVoices by remember { mutableIntStateOf(0) }
         /** Null = parado; senão a mensagem de progresso do cadastro. */
         var status by remember { mutableStateOf<String?>(null) }
         /** Nome da voz a cadastrar, enquanto o campo está aberto. */
@@ -295,9 +297,18 @@ class SettingsActivity : ComponentActivity() {
         var renaming by remember { mutableStateOf<Pair<String, String>?>(null) }
         var threshold by remember { mutableFloatStateOf(prefs.voiceMatchThreshold) }
 
+        /** Relê a lista; best-effort, para uma falha só na recarga não virar erro da ação que deu certo. */
         suspend fun reloadVoices() {
             val modelId = config?.voiceModelId ?: return
-            voices = withContext(Dispatchers.IO) { api.voiceProfiles() }.filter { it.modelId == modelId }
+            val all = try {
+                withContext(Dispatchers.IO) { api.voiceProfiles() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return
+            }
+            voices = all.filter { it.modelId == modelId }
+            totalVoices = all.size
         }
 
         fun toast(text: String) = Toast.makeText(ctx, text, Toast.LENGTH_LONG).show()
@@ -333,9 +344,10 @@ class SettingsActivity : ComponentActivity() {
                     status = "Salvando…"
                     val body = VoiceProfileBody(label, voice.embeddings.map { it.toList() }, current.voiceModelId)
                     runCatching { withContext(Dispatchers.IO) { api.createVoiceProfile(body) } }
-                        .onFailure { error("Falha ao salvar a voz") }
-                    reloadVoices()
+                        .onFailure { if (it is CancellationException) throw it; error("Falha ao salvar a voz") }
+                    // Reconstrói a verificação no serviço com a voz nova.
                     KnockService.startIfEnabled(ctx)
+                    reloadVoices()
                     val percent = { v: Float -> "${(v * 100).roundToInt()}%" }
                     toast(
                         if (voice.consistency < threshold) {
@@ -364,21 +376,21 @@ class SettingsActivity : ComponentActivity() {
             renaming = null
             if (label.isEmpty() || label == voice.label) return
             scope.launch {
-                runCatching {
-                    withContext(Dispatchers.IO) { api.renameVoiceProfile(voice.id, VoiceLabelBody(label)) }
-                    reloadVoices()
-                }.onSuccess { toast("Voz renomeada") }.onFailure { toast("Falha ao renomear a voz") }
+                runCatching { withContext(Dispatchers.IO) { api.renameVoiceProfile(voice.id, VoiceLabelBody(label)) } }
+                    .onSuccess { toast("Voz renomeada") }
+                    .onFailure { if (it is CancellationException) throw it; toast("Falha ao renomear a voz") }
+                reloadVoices()
             }
         }
 
         fun remove(voice: VoiceProfile) = scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { api.deleteVoiceProfile(voice.id) }
-                reloadVoices()
-            }.onSuccess {
-                KnockService.startIfEnabled(ctx)
-                toast("Voz removida")
-            }.onFailure { toast("Falha ao remover a voz") }
+            runCatching { withContext(Dispatchers.IO) { api.deleteVoiceProfile(voice.id) } }
+                .onSuccess {
+                    KnockService.startIfEnabled(ctx)
+                    toast("Voz removida")
+                }
+                .onFailure { if (it is CancellationException) throw it; toast("Falha ao remover a voz") }
+            reloadVoices()
         }
 
         Column(Modifier.padding(start = 44.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -430,10 +442,10 @@ class SettingsActivity : ComponentActivity() {
                 }
                 else -> IntegraButton(
                     "Adicionar voz", { newLabel = "" }, Modifier.fillMaxWidth(),
-                    enabled = voices.size < MAX_VOICES_PER_USER,
+                    enabled = totalVoices < MAX_VOICES_PER_USER,
                 )
             }
-            if (voices.size >= MAX_VOICES_PER_USER) {
+            if (totalVoices >= MAX_VOICES_PER_USER) {
                 Text("No máximo $MAX_VOICES_PER_USER vozes: remova uma para adicionar outra.", style = Txt.xs, color = Tw.mist500)
             }
         }
