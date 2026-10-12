@@ -86,6 +86,7 @@ import kotlinx.coroutines.launch
 class ShellActions(
     val openDrawer: () -> Unit,
     val lock: () -> Unit,
+    val kill: () -> Unit,
     val navigate: (Page) -> Unit,
 )
 
@@ -112,6 +113,7 @@ fun ScreenHeader(
         Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         actions()
         IconBtn(Hero.LockClosed, "Bloquear tela", shell.lock)
+        IconBtn(Hero.Power, "Fechar app", shell.kill)
     }
 }
 
@@ -144,6 +146,7 @@ fun ScreenColumn(
 @Composable
 fun IntegraApp(
     lock: () -> Unit,
+    kill: () -> Unit,
     openSettings: () -> Unit,
     homeRequests: StateFlow<Int>,
     overlay: @Composable () -> Unit = {},
@@ -171,7 +174,7 @@ fun IntegraApp(
             val current = me
             when {
                 current != null -> CompositionLocalProvider(LocalMe provides current) {
-                    Shell(current, lock, openSettings, homeRequests, overlay)
+                    Shell(current, lock, kill, openSettings, homeRequests, overlay)
                 }
                 error != null -> Column(
                     Modifier.align(Alignment.Center).padding(24.dp),
@@ -196,6 +199,7 @@ fun IntegraApp(
 private fun Shell(
     me: Me,
     lock: () -> Unit,
+    kill: () -> Unit,
     openSettings: () -> Unit,
     homeRequests: StateFlow<Int>,
     overlay: @Composable () -> Unit,
@@ -214,6 +218,7 @@ private fun Shell(
         ShellActions(
             openDrawer = { drawerOpen = true },
             lock = lock,
+            kill = kill,
             navigate = { target -> pageId = target.name; drawerOpen = false },
         )
     }
