@@ -125,8 +125,11 @@ class KnockService : Service() {
             }
             if (voice !== detector || !detector.load()) return@post
             // Verificação de locutor ("é a minha voz?"): só a voz cadastrada dispara.
-            // Null quando não há perfil/modelo — aí dispara com qualquer voz (como antes).
-            detector.setGate(runCatching { SpeakerGate.build(this, prefs) }.getOrNull())
+            // Null quando não há perfil/modelo — aí dispara com qualquer voz (como antes). Se a
+            // busca falhar (ex.: sem rede ao voltar ao app), mantém o gate que já estava valendo.
+            runCatching { SpeakerGate.build(this, prefs, detector.gateModel) }
+                .onSuccess { detector.setGate(it) }
+                .onFailure { Log.w(TAG, "Vozes indisponíveis; mantendo a verificação atual", it) }
             // Ouve sempre (tela ligada ou desligada), como o "Ei Integra" do web.
             detector.start()
         }

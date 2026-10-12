@@ -35,8 +35,21 @@ class WakeWord(private val context: Context, private val onWake: () -> Unit) {
     private var ringFilled = false
     private val ringLock = Any()
 
+    /** Modelo do gate atual, para o próximo [SpeakerGate.build] reaproveitar em vez de abrir outro. */
+    val gateModel: SpeakerModel? get() = gate?.model
+
     fun setGate(newGate: SpeakerGate?) {
+        if (worker.isShutdown) {
+            newGate?.model?.close()
+            return
+        }
+        val old = gate
         gate = newGate
+        // Cada SpeakerModel é uma sessão ONNX (~26 MB + threads): sem fechar a anterior, cada volta
+        // ao app (onStartCommand) deixava mais uma viva. Fecha no worker, onde a verificação roda,
+        // para não fechar a sessão no meio de uma.
+        val stale = old?.model?.takeIf { it !== newGate?.model } ?: return
+        worker.execute { stale.close() }
     }
 
     /**
@@ -114,9 +127,9 @@ class WakeWord(private val context: Context, private val onWake: () -> Unit) {
 
     fun release() {
         stop()
-        gate?.model?.close()
+        val gateModel = gate?.model
         gate = null
-        worker.execute { model?.close(); model = null }
+        worker.execute { gateModel?.close(); model?.close(); model = null }
         worker.shutdown()
     }
 
