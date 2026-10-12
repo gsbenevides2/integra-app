@@ -31,7 +31,11 @@ APK=app/build/outputs/apk/release/app-release.apk
 
 # Um APK com outra chave não instala por cima: falha aqui em vez de publicar.
 APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
-CERT_SHA256="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+# A linha muda entre versões do apksigner ("Signer #1 …" ou "Signer (minSdkVersion=…) …").
+echo "Verificando a assinatura com $APKSIGNER"
+SIGNERS="$("$APKSIGNER" verify --print-certs "$APK")"
+echo "$SIGNERS"
+CERT_SHA256="$(echo "$SIGNERS" | grep -m1 'certificate SHA-256 digest:' | sed 's/.*digest: //' || true)"
 if [ "$CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
     echo "APK assinado com o certificado errado: $CERT_SHA256 (esperado $EXPECTED_CERT_SHA256)"
     exit 1
