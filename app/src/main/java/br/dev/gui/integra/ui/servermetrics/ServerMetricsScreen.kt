@@ -180,8 +180,8 @@ private inline fun <T> List<T>.toPoints(time: (T) -> String, value: (T) -> Doubl
 private fun SpeedtestChart(data: List<SpeedtestSnapshot>) {
     val series = remember(data) {
         listOf(
-            ChartSeries("Download", SkyLine, data.toPoints({ it.collectedAt }, { it.downloadMbps })),
-            ChartSeries("Upload", PurpleLine, data.toPoints({ it.collectedAt }, { it.uploadMbps })),
+            ChartSeries("Download", SkyLine, data.toPoints({ it.collectedAt }, { it.downloadMbps }), formatValue = { v -> "${v.toBigDecimal().setScale(1, java.math.RoundingMode.HALF_UP).toPlainString()} Mbps" }),
+            ChartSeries("Upload", PurpleLine, data.toPoints({ it.collectedAt }, { it.uploadMbps }), formatValue = { v -> "${v.toBigDecimal().setScale(1, java.math.RoundingMode.HALF_UP).toPlainString()} Mbps" }),
         )
     }
     MetricCard("Velocidade da internet (Mbps)") {

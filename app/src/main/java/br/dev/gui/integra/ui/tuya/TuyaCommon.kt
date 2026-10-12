@@ -38,7 +38,11 @@ import kotlin.math.max
 internal fun SubHeading(text: String, modifier: Modifier = Modifier, color: Color = Tw.mist300) =
     Text(text, style = Txt.sm.semibold(), color = color, modifier = modifier)
 
-/** Botão-link `text-xs text-mist-400 underline`. */
+/**
+ * Botão-link `text-xs text-mist-400 underline underline-offset-2`. O offset do Tailwind
+ * (`underline-offset-2` = 2px) não existe em `TextDecoration` do Compose; aqui o underline
+ * simples já é o máximo suportado.
+ */
 @Composable
 internal fun LinkButton(text: String, onClick: () -> Unit) = Text(
     text,

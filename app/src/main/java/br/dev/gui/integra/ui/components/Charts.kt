@@ -57,7 +57,7 @@ data class ChartPoint(val x: Long, val y: Float?)
 /**
  * Uma série, com os defaults do Recharts usado no web: curva `monotone` (suave) em linhas e áreas,
  * degrau `stepAfter` em [SeriesKind.Step], traço de 1 px e preenchimento chapado com [fillAlpha]
- * (o `fillOpacity` do `<Area>`, 0.6 por padrão).
+ * (o `fillOpacity` do `<Area>`; o web usa 0.3 por padrão).
  */
 @Immutable
 data class ChartSeries(
@@ -70,7 +70,8 @@ data class ChartSeries(
     val fill: Boolean = kind == SeriesKind.Area || kind == SeriesKind.Step,
     /** Formato do valor desta série no tooltip (padrão: o `formatY` do gráfico). */
     val formatValue: ((Float) -> String)? = null,
-    val fillAlpha: Float = 0.6f,
+    /** Preenchimento da área sob a linha (o `fillOpacity` do `<Area>`; o web usa 0.3). */
+    val fillAlpha: Float = 0.3f,
     val strokeWidth: Dp = 1.dp,
     /** Curva suave (`type="monotone"`); falso desenha segmentos retos (`type="linear"`). */
     val smooth: Boolean = true,
@@ -240,7 +241,7 @@ fun TimeChart(
 private fun DrawScope.drawSeries(s: ChartSeries, px: (Long) -> Float, py: (Float) -> Float, bottom: Float, barW: Float) {
     val stroke = Stroke(
         s.strokeWidth.toPx(),
-        pathEffect = if (s.dashed) PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx())) else null,
+        pathEffect = if (s.dashed) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 2.dp.toPx())) else null,
     )
     if (s.kind == SeriesKind.Bar) {
         for (p in s.points) {
@@ -321,7 +322,8 @@ private fun DrawScope.drawTooltip(
         add(formatX(x) to Color(0xFFE5E7EB))
         for (s in series) {
             val p = s.points.firstOrNull { it.x == x } ?: continue
-            add("${s.name} : ${p.y?.let(s.formatValue ?: formatY) ?: "—"}" to s.color)
+            // Web: `${value} ${name}` (sem o " : " e sem prefixar o label).
+            add("${p.y?.let(s.formatValue ?: formatY) ?: "—"} ${s.name}" to s.color)
         }
     }
     val style = TextStyle(fontSize = 12.sp, lineHeight = 18.sp)

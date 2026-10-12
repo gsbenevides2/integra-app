@@ -417,7 +417,10 @@ private val TopShape = RoundedCornerShape(topStart = SectionRadius, topEnd = Sec
 private val BottomShape = RoundedCornerShape(bottomStart = SectionRadius, bottomEnd = SectionRadius)
 private val RectShape = RoundedCornerShape(0.dp)
 
-/** Fundo de uma linha da seção; a última fecha o cartão com os cantos de baixo e o `p-3`. */
+/**
+ * Fundo de uma linha da seção; a última fecha o cartão com os cantos de baixo.
+ * `p-3` do `<section>`: o header já aplica `top=12`, as linhas `bottom=12` só na última.
+ */
 private fun Modifier.sectionBody(last: Boolean, firstRow: Boolean): Modifier {
     val shape: Shape = if (last) BottomShape else RectShape
     return this
@@ -433,6 +436,10 @@ private fun Modifier.sectionBody(last: Boolean, firstRow: Boolean): Modifier {
         .padding(vertical = 8.dp)
 }
 
+/**
+ * Cabeçalho da seção: o `div.mb-2` do web (margem inferior 8dp) dentro do `p-3` do `<section>`.
+ * O `mb-2` vira `bottom = 8` no próprio padding do header, e as linhas começam logo abaixo.
+ */
 @Composable
 private fun SectionHeader(
     title: String,
@@ -456,6 +463,8 @@ private fun SectionHeader(
     }
     Column(Modifier.fillMaxWidth().padding(top = if (first) 0.dp else 12.dp)) {
         Column(
+            // p-3 do <section> + mb-2 do header (8dp) — o título/botões ficam com o mesmo
+            // espaçamento do web antes da primeira linha da lista.
             Modifier.fillMaxWidth().clip(TopShape).background(Surface.card).padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {

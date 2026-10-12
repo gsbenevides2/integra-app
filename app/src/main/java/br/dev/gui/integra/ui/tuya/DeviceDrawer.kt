@@ -442,7 +442,7 @@ private fun DeviceHistoryChart(data: List<HistoryPoint>) {
     ) {
         Text("Histórico", style = Txt.sm.semibold())
         TimeChart(
-            series = listOf(ChartSeries("Brilho médio", Color(0xFFFBBF24), buckets, kind = SeriesKind.Area)),
+            series = listOf(ChartSeries("Brilho médio", Color(0xFFFBBF24), buckets, kind = SeriesKind.Area, fillAlpha = 0.3f)),
             height = 224.dp,
             yMin = 0f,
             yMax = 100f,

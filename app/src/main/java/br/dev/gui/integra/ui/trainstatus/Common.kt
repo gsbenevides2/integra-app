@@ -38,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -156,9 +158,10 @@ class HistoryPager<P : HistoryPage>(
 }
 
 /**
- * Moldura do HistoryModal do web: fundo `bg-mist-950/90`, cartão `max-w-2xl rounded-lg bg-gray-800 p-4`,
- * título `text-lg font-semibold` com X, área do gráfico `h-64` (carregando / vazio / gráfico),
- * navegação entre páginas e a lista de segmentos (`max-h-48`, rolável).
+ * Moldura do HistoryModal do web: fundo `bg-mist-950/90 backdrop-blur-sm`, cartão `max-w-2xl
+ * rounded-lg bg-gray-800 p-4 shadow-xl`, título `text-lg font-semibold` com X, área do gráfico
+ * `h-64` (carregando / vazio / gráfico), navegação entre páginas e a lista de segmentos
+ * (`max-h-48`, rolável).
  */
 @Composable
 fun HistoryModalFrame(
@@ -195,6 +198,14 @@ fun HistoryModalFrame(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .background(Surface.card)
+                        // shadow-xl
+                        .drawBehind {
+                            drawRect(
+                                Color.Black.copy(alpha = 0.25f),
+                                topLeft = androidx.compose.ui.geometry.Offset(0f, 8.dp.toPx()),
+                                size = androidx.compose.ui.geometry.Size(size.width, size.height),
+                            )
+                        }
                         .clickable(remember { MutableInteractionSource() }, null) {}
                         .verticalScroll(rememberScrollState())
                         .padding(16.dp),

@@ -251,7 +251,7 @@ fun TuyaScreen() {
     }
 
     val shownDevice = rememberLast(openDevice)
-    SideSheet(open = openDevice != null, onClose = { openDeviceId = null }, title = shownDevice?.name ?: "") {
+    SideSheet(open = openDevice != null, onClose = { openDeviceId = null }, title = shownDevice?.name ?: "", enableSwipeClose = true) {
         shownDevice?.let { device ->
             key(device.id) {
                 DeviceDrawerContent(
@@ -265,11 +265,11 @@ fun TuyaScreen() {
         }
     }
     val shownSensor = rememberLast(openSensor)
-    SideSheet(open = openSensor != null, onClose = { openSensorId = null }, title = shownSensor?.name ?: "") {
+    SideSheet(open = openSensor != null, onClose = { openSensorId = null }, title = shownSensor?.name ?: "", enableSwipeClose = true) {
         shownSensor?.let { sensor -> key(sensor.id) { SensorDrawerContent(sensor, onChanged = refresh) } }
     }
     val shownPreset = rememberLast(openPreset)
-    SideSheet(open = openPreset != null, onClose = { openPresetId = null }, title = shownPreset?.name ?: "") {
+    SideSheet(open = openPreset != null, onClose = { openPresetId = null }, title = shownPreset?.name ?: "", enableSwipeClose = true) {
         shownPreset?.let { preset ->
             key(preset.id) {
                 PresetDrawerContent(

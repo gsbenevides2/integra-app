@@ -19,8 +19,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import br.dev.gui.integra.data.Integra
 import br.dev.gui.integra.ui.components.IconBtn
 import br.dev.gui.integra.ui.theme.Hero
@@ -33,6 +35,7 @@ import coil3.compose.AsyncImage
 /**
  * Aparece sobre as outras telas enquanto o assistente está ativo, para dar para ver (por exemplo)
  * a lâmpada mudar em vez de ser levado para o chat (`VoiceAssistantOverlay.tsx`).
+ * Fundo `bg-gray-900/95` + `shadow-xl backdrop-blur-sm`.
  */
 @Composable
 fun BoxScope.AssistantOverlay() {

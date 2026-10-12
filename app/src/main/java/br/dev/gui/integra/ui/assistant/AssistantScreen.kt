@@ -122,9 +122,10 @@ fun AssistantScreen() {
         if (canConfigure) SettingsModal(settingsOpen) { settingsOpen = false }
 
         if (!allowed) {
+            // PermissionDenied: título "Sem permissão" + label `text-xs text-mist-400`.
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Icon(Hero.LockClosed, null, Modifier.size(40.dp), tint = Tw.mist500)
-                Text("Peça acesso ao assistente para um administrador.", style = Txt.sm, color = Tw.mist300)
+                Text("Sem permissão", style = Txt.sm, color = Tw.mist200)
+                Text("Peça acesso ao assistente para um administrador.", style = Txt.xs, color = Tw.mist400)
             }
             return@Column
         }

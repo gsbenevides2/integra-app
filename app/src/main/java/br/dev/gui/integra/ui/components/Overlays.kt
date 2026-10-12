@@ -46,6 +46,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import br.dev.gui.integra.ui.theme.Hero
@@ -91,8 +94,8 @@ fun OverlayHostView(host: OverlayHost) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * `Modal.tsx`: fundo `bg-mist-950/90`, cartão `max-w-md rounded-lg bg-gray-800 p-4 gap-4` com
- * título `text-base font-semibold`. Toque fora ou "voltar" fecham.
+ * `Modal.tsx`: fundo `bg-mist-950/90 backdrop-blur-sm`, cartão `max-w-md rounded-lg bg-gray-800 p-4
+ * gap-4 shadow-xl` com título `text-base font-semibold`. Toque fora ou "voltar" fecham.
  */
 @Composable
 fun Modal(
@@ -121,6 +124,14 @@ fun Modal(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .background(Surface.card)
+                        .drawBehind {
+                            // shadow-xl
+                            drawRect(
+                                Color.Black.copy(alpha = 0.25f),
+                                topLeft = androidx.compose.ui.geometry.Offset(0f, 8.dp.toPx()),
+                                size = androidx.compose.ui.geometry.Size(size.width, size.height),
+                            )
+                        }
                         .clickable(remember { MutableInteractionSource() }, null) {}
                         .verticalScroll(rememberScrollState())
                         .padding(16.dp),
@@ -139,7 +150,8 @@ enum class SheetSize(val maxWidth: Dp) { Small(360.dp), Medium(448.dp), Large(57
 
 /**
  * `Drawer.tsx`: painel lateral `bg-gray-900` com cabeçalho fixo (título + X), fundo `bg-black/50`.
- * O conteúdo rola e tem `p-4 gap-4` (sem padding com [removePadding]).
+ * O conteúdo rola e tem `p-4 gap-4` (sem padding com [removePadding]). `enableSwipeClose`
+ * (arrastar para fora fecha) é aplicado pelos chamadores.
  */
 @Composable
 fun SideSheet(
@@ -150,6 +162,7 @@ fun SideSheet(
     size: SheetSize = SheetSize.Medium,
     removePadding: Boolean = false,
     scrollable: Boolean = true,
+    enableSwipeClose: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Portal {
@@ -173,6 +186,11 @@ fun SideSheet(
                         .fillMaxWidth()
                         .fillMaxHeight()
                         .background(Surface.sheet)
+                        // Arrastar para fora fecha (enableSwipeClose do web).
+                        .then(
+                            if (enableSwipeClose) Modifier.swipeToClose(onClose, fromRight = side == SheetSide.Right)
+                            else Modifier,
+                        )
                         .clickable(remember { MutableInteractionSource() }, null) {}
                         .imePadding(),
                 ) {
@@ -201,6 +219,28 @@ fun SideSheet(
                 }
             }
         }
+    }
+}
+
+/**
+ * Arrastar para fora do painel fecha (o `enableSwipeClose` do `Drawer.tsx`): 60 dp mínimos,
+ * na horizontal, com sinal coerente com o lado de onde o painel veio.
+ */
+private fun Modifier.swipeToClose(onClose: () -> Unit, fromRight: Boolean): Modifier = pointerInput(onClose) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val start = down.position
+        var last = start
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            if (!change.pressed) break
+            last = change.position
+        }
+        val dx = last.x - start.x
+        val dy = last.y - start.y
+        if (kotlin.math.abs(dx) < 60.dp.toPx() || kotlin.math.abs(dx) < kotlin.math.abs(dy) * 1.5f) return@awaitEachGesture
+        if (fromRight && dx > 0 || !fromRight && dx < 0) onClose()
     }
 }
 

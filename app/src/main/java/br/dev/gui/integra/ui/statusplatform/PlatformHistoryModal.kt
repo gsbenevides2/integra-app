@@ -74,6 +74,8 @@ fun PlatformHistoryModal(open: Boolean, onClose: () -> Unit, platformId: String?
                 name = "Status",
                 color = Tw.green500,
                 kind = SeriesKind.Step,
+                // fillOpacity={0.3} no web.
+                fillAlpha = 0.3f,
                 points = checks.mapNotNull { check ->
                     val time = parseIsoMs(check.checkedAt) ?: return@mapNotNull null
                     ChartPoint(time, if (check.status == "OK") 1f else 0f)

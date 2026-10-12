@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import br.dev.gui.integra.ui.components.ChartPoint
 import br.dev.gui.integra.ui.components.ChartSeries
+import br.dev.gui.integra.ui.components.SeriesKind
 import br.dev.gui.integra.ui.components.TimeChart
 import br.dev.gui.integra.ui.components.formatDateTime
 import br.dev.gui.integra.ui.theme.Surface
@@ -114,7 +115,15 @@ fun RouterStatusChart(data: List<RouterStatusHistoryPoint>) {
             // connectNulls: pontos sem valor são só pulados.
             ChartSeries("CPU", CpuColor, points.mapNotNull { (x, p) -> p.cpuUsage?.let { ChartPoint(x, it.toFloat()) } }),
             ChartSeries("Memória", MemoryColor, points.mapNotNull { (x, p) -> p.memoryUsage?.let { ChartPoint(x, it.toFloat()) } }),
-            ChartSeries("Conexão", ConnectionColor, stepPoints(points.map { (x, p) -> x to p.connectionStatus }), dashed = true),
+            ChartSeries(
+                "Conexão",
+                ConnectionColor,
+                stepPoints(points.map { (x, p) -> x to p.connectionStatus }),
+                kind = SeriesKind.Step,
+                dashed = true,
+                // 0/100 é só o valor do eixo; o tooltip mostra o status cru (`connectionStatus`).
+                formatValue = { v -> if (v >= 50f) "connected" else "disconnected" },
+            ),
         )
     }
     Column(
@@ -132,7 +141,7 @@ fun RouterStatusChart(data: List<RouterStatusHistoryPoint>) {
             formatY = { "${Math.round(it)}%" },
             formatX = ::formatDateTime,
             formatTooltipX = ::formatDateTime,
-            showLegend = true,
+            showLegend = false,
         )
     }
 }

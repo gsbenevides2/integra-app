@@ -66,12 +66,18 @@ fun TrainHistoryModal(open: Boolean, onClose: () -> Unit, lineCode: Int?) {
 
     val page = pager.page
     val checks = page?.checks.orEmpty()
+    // Situação de cada check, para a 3ª linha do tooltip (`point.situation` no web).
+    val situations = remember(checks) {
+        checks.mapNotNull { check -> parseIsoMs(check.checkedAt)?.let { it to check.situation } }.toMap()
+    }
     val series = remember(checks) {
         listOf(
             ChartSeries(
                 name = "Status",
                 color = Tw.green500,
                 kind = SeriesKind.Step,
+                // fillOpacity={0.3} no web.
+                fillAlpha = 0.3f,
                 points = checks.mapNotNull { check ->
                     val time = parseIsoMs(check.checkedAt) ?: return@mapNotNull null
                     ChartPoint(time, (TrainLineStatus.of(check.status) ?: TrainLineStatus.UNKNOWN).value.toFloat())
@@ -109,7 +115,17 @@ fun TrainHistoryModal(open: Boolean, onClose: () -> Unit, lineCode: Int?) {
                 yTicks = STATUS_TICKS,
                 formatY = { v -> TrainLineStatus.entries.firstOrNull { it.value == v.toInt() }?.label ?: "Unknown" },
                 formatX = if (compactAxis) null else { ms -> formatTrainDateTime(ms) },
-                formatTooltipX = { formatTrainDateTime(it, withYear = true, withSeconds = true) },
+                formatTooltipX = { ms ->
+                    val status = series.first().points.firstOrNull { it.x == ms }
+                    val label = status?.y?.let { v -> TrainLineStatus.entries.firstOrNull { it.value == v.toInt() }?.label } ?: "Unknown"
+                    val situation = situations[ms]
+                    // Web: data + status colorido + situation em mist-400.
+                    buildString {
+                        append(formatTrainDateTime(ms, withYear = true, withSeconds = true))
+                        append('\n'); append(label)
+                        if (!situation.isNullOrBlank()) { append('\n'); append(situation) }
+                    }
+                },
                 showLegend = false,
             )
         },

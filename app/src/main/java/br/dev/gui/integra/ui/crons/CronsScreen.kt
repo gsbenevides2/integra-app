@@ -2,7 +2,6 @@ package br.dev.gui.integra.ui.crons
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -51,9 +50,6 @@ private sealed interface RunResult {
     data class Error(val message: String) : RunResult
 }
 
-/** Abaixo desta largura a tabela vira uma lista de cartões. */
-private val TABLE_MIN_WIDTH = 560.dp
-
 @Composable
 fun CronsScreen() {
     val toast = LocalToast.current
@@ -97,18 +93,15 @@ fun CronsScreen() {
         when {
             isLoading -> LoadingText("Carregando crons...")
             jobs.isEmpty() -> EmptyState(Hero.ServerStack, "Nenhum cron registrado")
-            else -> BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val asTable = maxWidth >= TABLE_MIN_WIDTH
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Surface.card)) {
-                    if (asTable) TableHeader()
-                    jobs.forEachIndexed { index, job ->
-                        androidx.compose.runtime.key(job.name) {
-                            if (index > 0 || asTable) HorizontalDivider(thickness = 1.dp, color = Tw.gray700)
-                            val running = runningJobs[job.name] == true
-                            val result = lastResult[job.name]
-                            if (asTable) TableRow(job, running, result) { runJob(job) }
-                            else StackedRow(job, running, result) { runJob(job) }
-                        }
+            // O web nunca troca a tabela por cartões (`<table>` sempre) — sem breakpoint.
+            else -> Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Surface.card)) {
+                TableHeader()
+                jobs.forEachIndexed { index, job ->
+                    androidx.compose.runtime.key(job.name) {
+                        if (index > 0) HorizontalDivider(thickness = 1.dp, color = Tw.gray700)
+                        val running = runningJobs[job.name] == true
+                        val result = lastResult[job.name]
+                        TableRow(job, running, result) { runJob(job) }
                     }
                 }
             }
@@ -140,24 +133,6 @@ private fun TableRow(job: CronJob, running: Boolean, result: RunResult?, onRun: 
         Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) { LastRunCell(running, result) }
         Row(Modifier.width(ACTION_WIDTH).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.End) {
             RunButton(running, onRun)
-        }
-    }
-}
-
-/** Versão em cartão (celular em pé): mesmas informações, empilhadas. */
-@Composable
-private fun StackedRow(job: CronJob, running: Boolean, result: RunResult?, onRun: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(Modifier.weight(1f)) { JobCell(job) }
-            RunButton(running, onRun)
-        }
-        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(Modifier.weight(1f)) { ScheduleCell(job) }
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                Text("Última execução", style = Txt.xs.copy(fontSize = 10.sp), color = Tw.mist400)
-                LastRunCell(running, result)
-            }
         }
     }
 }

@@ -19,11 +19,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -178,7 +182,7 @@ fun TypedText(text: String, live: Boolean, onTyped: () -> Unit, maxLines: Int = 
 
 /**
  * Markdown leve (`MessageMarkdown.tsx`): parágrafos, listas, títulos, **negrito**, *itálico*,
- * `código` e links (só o texto). HTML e imagens nunca são mostrados.
+ * `código`, links, blockquotes e tabelas GFM. HTML e imagens nunca são mostrados.
  */
 @Composable
 fun MarkdownText(text: String, maxLines: Int = Int.MAX_VALUE) {
@@ -192,10 +196,54 @@ fun MarkdownText(text: String, maxLines: Int = Int.MAX_VALUE) {
                     Text(block.marker, style = Txt.sm, color = Tw.mist400)
                     Text(inline(block.text), style = Txt.sm, maxLines = maxLines)
                 }
+                is MdBlock.Quote -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // border-l-2 border-mist-600
+                    Box(Modifier.width(2.dp).fillMaxHeight().background(Tw.mist600))
+                    Text(inline(block.text), style = Txt.sm, color = Tw.mist300, maxLines = maxLines, modifier = Modifier.weight(1f))
+                }
+                is MdBlock.Table -> MarkdownTable(block, maxLines)
                 is MdBlock.Code -> Text(
                     block.text, style = Txt.xs.copy(fontFamily = FontFamily.Monospace),
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Tw.gray900).padding(8.dp),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Tw.gray950).padding(8.dp),
                 )
+            }
+        }
+    }
+}
+
+/** Tabela GFM (`table` + `th`/`td` do web): cabeçalho semibold com borda inferior, células `text-xs`. */
+@Composable
+private fun MarkdownTable(table: MdBlock.Table, maxLines: Int) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(Tw.gray950),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        if (table.headers.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().drawBehind {
+                drawLine(Tw.gray600, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+            }) {
+                for (header in table.headers) {
+                    Text(
+                        inline(header), style = Txt.xs.semibold(), color = Tw.gray100,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+        table.rows.forEachIndexed { index, row ->
+            Row(
+                Modifier.fillMaxWidth().drawBehind {
+                    if (index < table.rows.lastIndex) {
+                        drawLine(Tw.gray700, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                    }
+                },
+            ) {
+                for (cell in row) {
+                    Text(
+                        inline(cell), style = Txt.xs, color = Tw.gray200,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
             }
         }
     }
@@ -205,12 +253,15 @@ private sealed interface MdBlock {
     data class Heading(val text: String) : MdBlock
     data class Paragraph(val text: String) : MdBlock
     data class Item(val marker: String, val text: String) : MdBlock
+    data class Quote(val text: String) : MdBlock
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : MdBlock
     data class Code(val text: String) : MdBlock
 }
 
 private val BULLET = Regex("^\\s*[-*+]\\s+(.*)")
 private val NUMBERED = Regex("^\\s*(\\d+)[.)]\\s+(.*)")
 private val HEADING = Regex("^#{1,6}\\s+(.*)")
+private val QUOTE = Regex("^>\\s?(.*)")
 
 private fun parseBlocks(text: String): List<MdBlock> {
     val out = mutableListOf<MdBlock>()
@@ -233,9 +284,21 @@ private fun parseBlocks(text: String): List<MdBlock> {
             }
             line.isBlank() -> flush()
             HEADING.matches(line) -> { flush(); out += MdBlock.Heading(HEADING.find(line)!!.groupValues[1]) }
+            QUOTE.matches(line) -> { flush(); out += MdBlock.Quote(QUOTE.find(line)!!.groupValues[1]) }
             BULLET.matches(line) -> { flush(); out += MdBlock.Item("•", BULLET.find(line)!!.groupValues[1]) }
             NUMBERED.matches(line) -> { flush(); NUMBERED.find(line)!!.groupValues.let { out += MdBlock.Item("${it[1]}.", it[2]) } }
-            line.trim().startsWith("|") -> { flush(); out += MdBlock.Paragraph(line.trim().trim('|').split('|').joinToString(" · ") { it.trim() }) }
+            line.trim().startsWith("|") -> {
+                flush()
+                // Tabela GFM: coleta as linhas `|...|` e separa cabeçalho, separador e corpo.
+                val tableLines = mutableListOf<String>()
+                while (i < lines.size && lines[i].trim().startsWith("|")) { tableLines.add(lines[i].trim()); i++ }
+                i--
+                val cells = tableLines.map { row -> row.trim('|').split('|').map { it.trim() } }
+                // Descarta a linha de separador (`|---|---|`).
+                val body = cells.filterNot { row -> row.all { it.matches(Regex("^:?-+:?$")) } }
+                if (body.size >= 2) out += MdBlock.Table(body[0], body.drop(1))
+                else if (body.isNotEmpty()) out += MdBlock.Paragraph(body[0].joinToString(" · "))
+            }
             else -> { if (paragraph.isNotEmpty()) paragraph.append('\n'); paragraph.append(line) }
         }
         i++
@@ -253,8 +316,9 @@ private fun inline(text: String): AnnotatedString = buildAnnotatedString {
         val g = m.groupValues
         when {
             g[1].isNotEmpty() || g[2].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(g[1].ifEmpty { g[2] }) }
-            g[3].isNotEmpty() -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Tw.gray900)) { append(g[3]) }
-            g[4].isNotEmpty() -> withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) { append(g[4]) }
+            g[3].isNotEmpty() -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Tw.gray950)) { append(g[3]) }
+            // text-mist-300 underline (web: <a target="_blank">)
+            g[4].isNotEmpty() -> withStyle(SpanStyle(color = Tw.mist300, textDecoration = TextDecoration.Underline)) { append(g[4]) }
             g[5].isNotEmpty() || g[6].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[5].ifEmpty { g[6] }) }
             else -> Unit // imagem em markdown: descartada
         }
@@ -284,8 +348,9 @@ fun MessageImages(images: List<AssistantImage>) {
                 AsyncImage(
                     model = Integra.url(image.url),
                     contentDescription = imageCaption(image),
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.sizeIn(maxWidth = 256.dp, maxHeight = 256.dp).size(192.dp).clip(RoundedCornerShape(8.dp)),
+                    // max-h-64 max-w-64 (até 256dp) sem forçar tamanho: preserva o aspect ratio.
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.sizeIn(maxWidth = 256.dp, maxHeight = 256.dp).clip(RoundedCornerShape(8.dp)),
                 )
                 Text(imageCaption(image), style = Txt.xs.copy(fontSize = 11.sp), color = Tw.mist400)
             }
