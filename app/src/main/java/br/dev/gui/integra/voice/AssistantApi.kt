@@ -45,10 +45,22 @@ data class ChatReply(
     val actions: List<AssistantAction> = emptyList(),
     val images: List<AssistantImage> = emptyList(),
     val endConversation: Boolean = false,
+    /** A fala não era para a Integra: nada é falado nem guardado (só um aviso sonoro). */
+    val silent: Boolean = false,
 )
 
+/**
+ * `source` e `speakerVerified` vêm só em turnos de voz: sem a verificação de locutor neste
+ * aparelho, a Integra só consulta (não muda nada na casa). Nulos são omitidos do JSON.
+ */
 @Serializable
-data class ChatBody(val text: String, val conversationId: String? = null, val images: List<String>? = null)
+data class ChatBody(
+    val text: String,
+    val conversationId: String? = null,
+    val images: List<String>? = null,
+    val source: String? = null,
+    val speakerVerified: Boolean? = null,
+)
 
 @Serializable
 data class ConversationSummary(val id: String, val title: String, val updatedAt: String, val ended: Boolean = false)

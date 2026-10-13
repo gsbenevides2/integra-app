@@ -50,7 +50,16 @@ data class AssistantMessage(
     val isUser get() = role == "user"
 }
 
-data class RetryPayload(val text: String, val images: List<AssistantImage>, val userMessageId: Long)
+/**
+ * [speakerVerified] é null para texto digitado; num turno de voz diz se a voz casou com o perfil
+ * cadastrado neste aparelho (sem isso, a Integra só consulta).
+ */
+data class RetryPayload(
+    val text: String,
+    val images: List<AssistantImage>,
+    val userMessageId: Long,
+    val speakerVerified: Boolean? = null,
+)
 
 /**
  * O assistente de voz, nativo. É o `VoiceAssistantContext/index.tsx` do web: "Ei Integra" → plim →
@@ -71,6 +80,8 @@ object Assistant {
     private const val FIRST_TURN_MS = 8_000L
     /** Depois de uma resposta, ouve por mais este tempo sem precisar da palavra. */
     private const val FOLLOW_UP_MS = 6_000L
+    /** O aviso sonoro de início dura 300 ms: o eco dele não pode contar como fala do usuário. */
+    private const val CHIME_ECHO_MS = 400L
 
     private lateinit var context: Context
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -102,6 +113,8 @@ object Assistant {
     private var conversationEnded = false
     private var lastActivity = 0L
     private var nextId = 0L
+    /** A verificação de locutor deste aparelho; null até carregar (ou quando não há perfil). */
+    @Volatile private var speakerGate: SpeakerGate? = null
 
     fun init(context: Context) {
         this.context = context.applicationContext
@@ -181,8 +194,14 @@ object Assistant {
         if (!allowed) return
         launchSession {
             Speaker.chime()
-            val text = listen(FIRST_TURN_MS)
-            converse(text, null)
+            val heard = listen(FIRST_TURN_MS, skipMs = CHIME_ECHO_MS)
+            // Não é a voz cadastrada (ou não se sabe de quem é): não responde, só um aviso.
+            if (heard.voice == VoiceCheck.Rejected) {
+                Speaker.chime()
+                setState(AssistantState.Idle)
+                return@launchSession
+            }
+            converse(heard.text, null, heard.voice.speakerVerified())
         }
     }
 
@@ -190,7 +209,7 @@ object Assistant {
     fun sendText(text: String) {
         val trimmed = text.trim()
         if (!allowed || trimmed.isEmpty()) return
-        launchSession { converse(trimmed, null) }
+        launchSession { converse(trimmed, null, null) }
     }
 
     /** Manda de novo a mensagem de uma resposta que falhou (a troca vai para o fim do chat). */
@@ -199,37 +218,81 @@ object Assistant {
         if (!allowed) return
         launchSession {
             _messages.update { list -> list.filter { it.id != replyId && it.id != payload.userMessageId } }
-            converse(payload.text, payload.images)
+            converse(payload.text, payload.images, payload.speakerVerified)
         }
     }
 
-    private suspend fun listen(timeoutMs: Long): String {
+    /** Verificação de locutor com o modelo do aparelho; carrega na primeira vez e reaproveita. */
+    private suspend fun currentGate(): SpeakerGate? {
+        speakerGate?.let { return it }
+        val prefs = br.dev.gui.integra.Prefs(context)
+        return withContext(Dispatchers.IO) {
+            runCatching { SpeakerGate.build(context, prefs) }
+                .onFailure { Log.w(TAG, "Verificação de locutor indisponível", it) }
+                .getOrNull()
+        }?.also { speakerGate = it }
+    }
+
+    private suspend fun listen(timeoutMs: Long, skipMs: Long = 0): Heard {
+        val gate = currentGate()
         setState(AssistantState.Listening)
-        val text = Recorder.listenOnce(context, timeoutMs) { phase ->
+        val heard = Recorder.listenOnce(
+            context,
+            timeoutMs,
+            skipMs = skipMs,
+            verify = gate?.let { g -> { samples: FloatArray -> verifyVoice(g, samples) } },
+        ) { phase ->
             Log.i(TAG, "fase: $phase")
             if (phase == ListenPhase.Speech) _hearingSpeech.value = true else setState(AssistantState.Thinking)
         }
         _hearingSpeech.value = false
-        Log.i(TAG, "ouviu: \"$text\"")
-        return text
+        Log.i(TAG, "ouviu: \"${heard.text}\" (voz=${heard.voice})")
+        return heard
     }
 
+    /** Se a gravação casa com alguma voz cadastrada (a frase sozinha, como no cadastro). */
+    private fun verifyVoice(gate: SpeakerGate, samples: FloatArray): Boolean {
+        val speech = SpeechTrim.lastSpeech(samples, AudioInput.SAMPLE_RATE)
+        val candidate = gate.model.embed(speech?.samples ?: samples, AudioInput.SAMPLE_RATE)
+        val score = gate.bestScore(candidate)
+        Log.i(TAG, "locutor: escore %.3f (limiar %.2f, trecho %d amostras de %d)"
+            .format(score, gate.threshold, speech?.samples?.size ?: samples.size, samples.size))
+        return score >= gate.threshold
+    }
+
+    private fun VoiceCheck.speakerVerified(): Boolean = this == VoiceCheck.Verified
+
     /** Responde e continua ouvindo continuações até o usuário ficar quieto. */
-    private suspend fun converse(firstText: String, firstImages: List<AssistantImage>?) {
+    private suspend fun converse(firstText: String, firstImages: List<AssistantImage>?, firstVerified: Boolean?) {
         var text = firstText
         var images = firstImages
+        var verified = firstVerified
         while (text.isNotEmpty()) {
-            val outcome = answer(text, images)
+            val outcome = answer(text, images, verified)
             images = null
-            if (outcome != Outcome.Continue) break
-            text = listen(FOLLOW_UP_MS)
+            when (outcome) {
+                Outcome.Silent -> {
+                    Speaker.chime()
+                    break
+                }
+                Outcome.Continue -> Unit
+                Outcome.Ended, Outcome.Failed -> break
+            }
+            val heard = listen(FOLLOW_UP_MS)
+            // Um follow-up de outra voz (TV, outra pessoa) encerra a sessão, sem responder.
+            if (heard.voice == VoiceCheck.Rejected) {
+                Speaker.chime()
+                break
+            }
+            text = heard.text
+            verified = heard.voice.speakerVerified()
         }
         setState(AssistantState.Idle)
     }
 
-    private enum class Outcome { Continue, Ended, Failed }
+    private enum class Outcome { Continue, Ended, Failed, Silent }
 
-    private suspend fun answer(text: String, retryImages: List<AssistantImage>?): Outcome {
+    private suspend fun answer(text: String, retryImages: List<AssistantImage>?, verified: Boolean?): Outcome {
         // Uma conversa parada não é retomada: começa outra, na tela também.
         if (_conversationId.value != null && System.currentTimeMillis() - lastActivity > RESUME_WINDOW_MS) {
             _conversationId.value = null
@@ -241,10 +304,15 @@ object Assistant {
         val userMessageId = addMessage(AssistantMessage(0, "user", text, images = images))
         setState(AssistantState.Thinking)
         val replyId = addMessage(AssistantMessage(0, "assistant", "", pending = true, live = true))
+        val body = ChatBody(
+            text = text,
+            conversationId = _conversationId.value,
+            images = images.map { it.key }.ifEmpty { null },
+            source = verified?.let { "voice" },
+            speakerVerified = verified,
+        )
         val reply = try {
-            AssistantHttp.streamChat(
-                ChatBody(text, _conversationId.value, images.map { it.key }.ifEmpty { null }),
-            ) { event ->
+            AssistantHttp.streamChat(body) { event ->
                 scope.launch {
                     when (event) {
                         is StreamEvent.Delta -> updateMessage(replyId) { it.copy(text = it.text + event.text, activity = null) }
@@ -265,9 +333,19 @@ object Assistant {
             toast(message)
             Telemetry.error("Assistente não respondeu", e)
             updateMessage(replyId) {
-                it.copy(pending = false, activity = null, error = message, retry = RetryPayload(text, images, userMessageId))
+                it.copy(
+                    pending = false,
+                    activity = null,
+                    error = message,
+                    retry = RetryPayload(text, images, userMessageId, verified),
+                )
             }
             return Outcome.Failed
+        }
+        if (reply.silent) {
+            // Não era para a Integra: a troca não fica no chat.
+            _messages.update { list -> list.filter { it.id != userMessageId && it.id != replyId } }
+            return Outcome.Silent
         }
         _conversationId.value = if (reply.endConversation) null else reply.conversationId
         lastActivity = System.currentTimeMillis()

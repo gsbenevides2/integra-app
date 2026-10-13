@@ -2,7 +2,9 @@ package br.dev.gui.integra.voice
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -28,6 +30,27 @@ object Vad {
 }
 
 enum class ListenPhase { Speech, Transcribing }
+
+/**
+ * Quem falou, segundo a verificação de locutor: [Verified] (casou com uma voz cadastrada),
+ * [Rejected] (não casou, ou a checagem falhou: a fala é descartada) e [Unknown] (não havia o
+ * que checar: o aparelho não tem perfil de voz).
+ */
+enum class VoiceCheck { Verified, Rejected, Unknown }
+
+/** Uma fala ouvida: o texto (já limpo) e quem falou. */
+data class Heard(val text: String, val voice: VoiceCheck)
+
+private val SOUND_ANNOTATION = Regex("\\[[^\\]]*]")
+private val SPACES = Regex("\\s+")
+
+/**
+ * O texto que o usuário disse. O Scribe anota sons que não são fala ("[phone beeps]",
+ * "[typing]"): esses trechos saem, e o que sobrar vazio não vira pedido. Igual ao
+ * `cleanTranscript` do web.
+ */
+fun cleanTranscript(text: String): String =
+    text.replace(SOUND_ANNOTATION, " ").replace(SPACES, " ").trim()
 
 /** RMS de um bloco de amostras, em -1..1. */
 private fun rms(samples: ShortArray): Float {
@@ -94,14 +117,39 @@ private class Endpointer(private val onSpeechStart: () -> Unit) {
 
 object Recorder {
     /**
-     * Grava uma fala (até o silêncio), transcreve no servidor (Scribe) e devolve o texto, ou "" se
-     * ninguém falou dentro de [silenceTimeoutMs]. Cancelar a corrotina para a gravação.
+     * Grava uma fala (até o silêncio) e devolve o texto transcrito no servidor (Scribe), ou vazio se
+     * ninguém falou dentro de [silenceTimeoutMs]. Com [verify], a gravação é checada antes de ir ao
+     * servidor: se não casar com a voz cadastrada (ou a checagem falhar), é descartada e nada é
+     * transcrito. Cancelar a corrotina para a gravação.
      */
-    suspend fun listenOnce(context: Context, silenceTimeoutMs: Long, onPhase: (ListenPhase) -> Unit): String {
-        val capture = capture(context, silenceTimeoutMs) { onPhase(ListenPhase.Speech) }
-        if (!capture.complete) return ""
+    suspend fun listenOnce(
+        context: Context,
+        silenceTimeoutMs: Long,
+        skipMs: Long = 0,
+        verify: ((FloatArray) -> Boolean)? = null,
+        onPhase: (ListenPhase) -> Unit,
+    ): Heard {
+        val capture = capture(context, silenceTimeoutMs, skipMs) { onPhase(ListenPhase.Speech) }
+        if (!capture.complete) return Heard("", VoiceCheck.Unknown)
+        if (verify != null) {
+            val matches = withContext(Dispatchers.Default) {
+                runCatching { verify(toFloats(capture.chunks)) }.getOrElse {
+                    Log.w(TAG, "Falha na verificação de locutor; fala descartada", it)
+                    false
+                }
+            }
+            if (!matches) return Heard("", VoiceCheck.Rejected)
+        }
         onPhase(ListenPhase.Transcribing)
-        return AssistantHttp.transcribe(encodeWav(capture.chunks))
+        val text = cleanTranscript(AssistantHttp.transcribe(encodeWav(capture.chunks)))
+        return Heard(text, if (verify != null) VoiceCheck.Verified else VoiceCheck.Unknown)
+    }
+
+    private fun toFloats(chunks: List<ShortArray>): FloatArray {
+        val out = FloatArray(chunks.sumOf { it.size })
+        var offset = 0
+        for (chunk in chunks) for (s in chunk) out[offset++] = s / 32768f
+        return out
     }
 
     /**
@@ -110,7 +158,7 @@ object Recorder {
      * Lança [NoSpeechException] se ninguém falar dentro de [silenceTimeoutMs].
      */
     suspend fun captureOnce(context: Context, silenceTimeoutMs: Long): FloatArray {
-        val capture = capture(context, silenceTimeoutMs) {}
+        val capture = capture(context, silenceTimeoutMs, 0) {}
         if (!capture.complete) throw NoSpeechException()
         val total = capture.chunks.sumOf { it.size }
         val out = FloatArray(total)
@@ -121,17 +169,26 @@ object Recorder {
 
     private class Capture(val chunks: List<ShortArray>, val complete: Boolean)
 
-    /** Escuta até o fim da frase ([complete]=true) ou até o timeout sem fala ([complete]=false). */
-    private suspend fun capture(context: Context, silenceTimeoutMs: Long, onSpeechStart: () -> Unit): Capture {
+    /**
+     * Escuta até o fim da frase ([complete]=true) ou até o timeout sem fala ([complete]=false).
+     * Os primeiros [skipMs] de áudio são descartados: é o eco do aviso sonoro que acabou de tocar,
+     * que o microfone captaria como fala e encerraria a frase antes do usuário falar.
+     */
+    private suspend fun capture(context: Context, silenceTimeoutMs: Long, skipMs: Long, onSpeechStart: () -> Unit): Capture {
         val queue = Channel<ShortArray>(Channel.UNLIMITED)
         val listener = AudioInput.Listener { samples, count -> queue.trySend(samples.copyOf(count)) }
         if (!AudioInput.add(context, listener)) throw IOException("Microfone indisponível")
         val recorded = ArrayList<ShortArray>()
         val endpointer = Endpointer(onSpeechStart)
         var complete = false
+        var skipped = 0.0
         try {
             while (true) {
                 val samples = queue.receive()
+                if (skipped < skipMs) {
+                    skipped += samples.size * 1000.0 / AudioInput.SAMPLE_RATE
+                    continue
+                }
                 recorded += samples
                 if (endpointer.feed(samples)) { complete = true; break }
                 if (!endpointer.heardSpeech && endpointer.elapsedMs >= silenceTimeoutMs) break

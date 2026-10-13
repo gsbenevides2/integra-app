@@ -16,12 +16,15 @@ class SpeakerGate(
     val embeddings: List<FloatArray>,
     val threshold: Float,
 ) {
-    /** Maior cosseno entre a voz ouvida e os embeddings cadastrados ≥ limiar. */
-    fun accepts(candidate: FloatArray): Boolean {
+    /** Maior cosseno entre a voz ouvida e os embeddings cadastrados. */
+    fun bestScore(candidate: FloatArray): Float {
         var best = Float.NEGATIVE_INFINITY
         for (enrolled in embeddings) best = maxOf(best, Fbank.cosine(candidate, enrolled))
-        return best >= threshold
+        return best
     }
+
+    /** O maior cosseno é ≥ limiar. */
+    fun accepts(candidate: FloatArray): Boolean = bestScore(candidate) >= threshold
 
     companion object {
         private const val TAG = "SpeakerGate"
